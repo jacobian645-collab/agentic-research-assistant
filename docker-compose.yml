@@ -1,0 +1,64 @@
+# Local production-like topology: API + three MCP tool servers as independent services.
+#   docker compose up --build
+#   curl -N -X POST localhost:8000/v1/research/stream -H 'content-type: application/json' \
+#        -d '{"question":"What transports does MCP support?"}'
+
+x-mcp-common: &mcp-common
+  build: .
+  image: agentic-research-assistant:latest
+  restart: unless-stopped
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  healthcheck:
+    disable: true
+
+services:
+  api:
+    build: .
+    image: agentic-research-assistant:latest
+    ports: ["8000:8000"]
+    env_file: [.env]
+    environment:
+      MCP_TRANSPORT: streamable_http
+      MCP_WEB_URL: http://mcp-web:8101/mcp
+      MCP_RETRIEVAL_URL: http://mcp-retrieval:8102/mcp
+      MCP_CODE_URL: http://mcp-code:8103/mcp
+      LOG_JSON: "true"
+    volumes:
+      - ${HOME}/.aws:/app/.aws:ro          # Bedrock credentials (or use env vars / instance role)
+    depends_on: [mcp-web, mcp-retrieval, mcp-code]
+    networks: [public, tools]
+
+  mcp-web:
+    <<: *mcp-common
+    command: ["python", "-m", "research_assistant.mcp_servers.web_search_server",
+              "--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8101"]
+    env_file: [.env]
+    networks: [public, tools]            # needs internet egress for search / fetch
+
+  mcp-retrieval:
+    <<: *mcp-common
+    command: ["python", "-m", "research_assistant.mcp_servers.retrieval_server",
+              "--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8102"]
+    env_file: [.env]
+    environment:
+      CORPUS_DIR: /app/data/corpus
+    volumes:
+      - ./data/corpus:/app/data/corpus:ro
+    networks: [public, tools]            # egress only needed for Bedrock embeddings
+
+  mcp-code:
+    <<: *mcp-common
+    command: ["python", "-m", "research_assistant.mcp_servers.code_exec_server",
+              "--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8103"]
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 64
+    networks: [tools]                    # internal-only network: NO internet egress
+
+networks:
+  public: {}
+  tools:
+    internal: true

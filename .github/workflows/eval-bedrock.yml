@@ -1,0 +1,62 @@
+name: eval-bedrock
+
+# Real quality gate against Amazon Bedrock. Runs nightly and on demand (not on every PR, to
+# control cost). Uses GitHub OIDC → IAM role; no long-lived AWS keys in the repo.
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Evaluate only the first N items (blank = all)"
+        required: false
+  schedule:
+    - cron: "30 20 * * *"   # 02:00 IST
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    environment: evaluation
+    env:
+      LLM_PROVIDER: bedrock
+      AWS_REGION: us-west-2
+      WEB_SEARCH_PROVIDER: tavily
+      TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+      EVAL_MIN_OVERALL: "4.0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_EVAL_ROLE_ARN }}
+          aws-region: us-west-2
+      - run: pip install -e .
+      - name: Restore last accepted baseline
+        uses: actions/cache/restore@v4
+        with:
+          path: reports/baseline.json
+          key: eval-baseline-${{ github.run_id }}
+          restore-keys: eval-baseline-
+      - name: Evaluate (fails on gate breach or >0.2 regression vs baseline)
+        run: |
+          ARGS="--concurrency 2"
+          if [ -n "${{ github.event.inputs.limit }}" ]; then ARGS="$ARGS --limit ${{ github.event.inputs.limit }}"; fi
+          if [ -f reports/baseline.json ]; then ARGS="$ARGS --baseline reports/baseline.json"; fi
+          ara eval $ARGS
+      - name: Promote to baseline on main
+        if: success() && github.ref == 'refs/heads/main'
+        run: cp reports/latest.json reports/baseline.json
+      - uses: actions/cache/save@v4
+        if: success() && github.ref == 'refs/heads/main'
+        with:
+          path: reports/baseline.json
+          key: eval-baseline-${{ github.run_id }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bedrock-eval-report
+          path: reports/

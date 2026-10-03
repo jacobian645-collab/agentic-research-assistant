@@ -1,0 +1,68 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agentic-research-assistant"
+version = "0.1.0"
+description = "Reference architecture: supervisor / sub-agent research assistant on LangGraph, with tool-calling workers over MCP, structured output, self-critique and an LLM-as-judge evaluation loop."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "LicenseRef-Proprietary-View-Only" }
+classifiers = ["License :: Other/Proprietary License", "Private :: Do Not Upload"]
+authors = [{ name = "Tanmay Roy" }]
+keywords = ["langgraph", "multi-agent", "mcp", "bedrock", "llm-as-judge", "agentic-ai"]
+dependencies = [
+  "langgraph>=1.0,<2",
+  "langchain-core>=1.0,<2",
+  "langchain-mcp-adapters>=0.1.10",
+  "mcp>=1.12,<2",
+  "langchain-aws>=1.0",
+  "pydantic>=2.7",
+  "pydantic-settings>=2.4",
+  "httpx>=0.27",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "typer>=0.12",
+]
+
+[project.optional-dependencies]
+anthropic = ["langchain-anthropic>=1.0"]
+openai = ["langchain-openai>=1.0"]          # OpenAI + Azure OpenAI
+ddg = ["ddgs>=9.0"]                          # keyless DuckDuckGo web search
+observability = ["langsmith>=0.3"]
+dev = [
+  "pytest>=8",
+  "pytest-asyncio>=0.24",
+  "ruff>=0.6",
+  "mypy>=1.11",
+]
+all = ["agentic-research-assistant[anthropic,openai,ddg,observability]"]
+
+[project.scripts]
+ara = "research_assistant.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/research_assistant"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF", "ASYNC"]
+ignore = ["RUF012", "B008", "SIM905"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_unused_ignores = false
+check_untyped_defs = true
+plugins = ["pydantic.mypy"]
